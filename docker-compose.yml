@@ -16,6 +16,7 @@ services:
     
     volumes:
       - minio_data:/data 
+      - ~/.minio/certs:/root/.minio/certs:ro
     
     restart: unless-stopped
     
