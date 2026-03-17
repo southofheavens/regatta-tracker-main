@@ -1,5 +1,5 @@
 CREATE TYPE user_role AS ENUM ('Participant', 'Judge');
-CREATE TYPE race_status AS ENUM ('Not_started', 'In_progress', 'Finished')
+CREATE TYPE race_status AS ENUM ('Not_started', 'In_progress', 'Finished');
 
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
