@@ -21,7 +21,7 @@ services:
     restart: unless-stopped
     
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${MINIO_API_PORT}/minio/health/live"]
+      test: ["CMD", "curl", "-k", "-f", "https://localhost:9000/minio/health/live"]
       interval: 30s
       timeout: 20s
       retries: 3
@@ -109,6 +109,34 @@ services:
     #   timeout: 5s
     #   retries: 3
     #   start_period: 20s
+
+  receiver:
+    build:
+      context: ../regatta-tracker-receiver
+      dockerfile: Dockerfile
+    container_name: regatta_receiver
+    ports:
+      - "${RECEIVER_PORT}:8081"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  management:
+    build:
+      context: ../regatta-tracker-management
+      dockerfile: Dockerfile
+    container_name: regatta_management
+    ports:
+      - "${MANAGEMENT_PORT}:8082"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   minio_data: 
