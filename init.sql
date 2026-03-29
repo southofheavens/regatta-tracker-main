@@ -21,6 +21,7 @@ CREATE TABLE races (
 CREATE TABLE participations (
     user_id BIGINT NOT NULL,
     race_id BIGINT NOT NULL,
+    role user_role NOT NULL,
     PRIMARY KEY (user_id, race_id),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (race_id) REFERENCES races(id) ON DELETE CASCADE
