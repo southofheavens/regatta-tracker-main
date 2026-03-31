@@ -185,6 +185,36 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  race-postprocessor:
+    build:
+      context: ../regatta-tracker-race-postprocessor
+      dockerfile: Dockerfile
+    container_name: regatta_race_postprocessor
+    environment:
+      PSQL_HOST: postgres
+      PSQL_USER: ${POSTGRES_USER}
+      PSQL_PASSWORD: ${POSTGRES_PASSWORD}
+      MINIO_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_ENDPOINT_OVERRIDE: "minio:9000"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      SECRET_KEY: ${SECRET_KEY}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_HOST: ${RABBITMQ_HOST}
+      RABBITMQ_PORT: 5672
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   minio_data: 
   postgres_data:
