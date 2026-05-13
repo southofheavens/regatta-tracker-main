@@ -1,3 +1,6 @@
 .env
 
 nginx/logs/*
+
+tests/build/
+tests/subprojects/rgt-devkit/

@@ -8,13 +8,17 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/logs:/var/log/nginx
-    # depends_on:
-    #   auth:
-    #     condition: service_healthy
-    #   receiver:
-    #     condition: service_healthy
-    #   management:
-    #     condition: service_healthy
+    depends_on:
+      auth:
+        condition: service_started
+      receiver:
+        condition: service_started
+      management:
+        condition: service_healthy
+      observer:
+        condition: service_started
+      race-postprocessor:
+        condition: service_started
     restart: unless-stopped
     networks:
       - default
@@ -49,13 +53,14 @@ services:
 
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
-
+    hostname: rabbitmq
     container_name: rabbitmq
 
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
       RABBITMQ_DEFAULT_VHOST: /
+      RABBITMQ_NODENAME: rabbit@rabbitmq
 
     ports:
       - "5672:5672"    
@@ -183,6 +188,15 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+    ports:
+      # С хоста: Postman на localhost:8082. Без этого порта доступен только через nginx :80
+      - "8082:8082"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "8082"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 60s
     restart: unless-stopped
 
   race-postprocessor:
@@ -212,6 +226,23 @@ services:
       minio:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  observer:
+    build:
+      context: ../regatta-tracker-observer
+      dockerfile: Dockerfile
+    container_name: regatta_observer
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      SECRET_KEY: ${SECRET_KEY}
+      PSQL_HOST: postgres
+      PSQL_USER: ${POSTGRES_USER}
+      PSQL_PASSWORD: ${POSTGRES_PASSWORD}
+    depends_on:
+      redis:
         condition: service_healthy
     restart: unless-stopped
 
