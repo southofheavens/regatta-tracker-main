@@ -39,12 +39,11 @@ rgt_main_integration_tests = executable(
     '-Wl,-rpath,/usr/local/lib',
   ],
   cpp_args: [
-    '-DPROJECT_NAME="rgt-management"',
+    '-DPROJECT_NAME="rgt-main"',
     '-DGPX_FILES_DIR="@0@"'.format(gpx_dir),
   ],
 )
 
-# workdir = каталог tests/ — там же лежит .env для интеграции с хоста (127.0.0.1 к сервисам из compose)
 test(
   'rgt-main-integration-tests',
   rgt_main_integration_tests,

@@ -40,12 +40,11 @@ services:
 
     volumes:
       - minio_data:/data 
-      - ~/.minio/certs:/root/.minio/certs:ro
     
     restart: unless-stopped
     
     healthcheck:
-      test: ["CMD", "curl", "-k", "-f", "https://localhost:9000/minio/health/live"]
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:9000/minio/health/live"]
       interval: 30s
       timeout: 20s
       retries: 3
@@ -174,6 +173,7 @@ services:
       MINIO_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       MINIO_ENDPOINT_OVERRIDE: "minio:9000"
+      MINIO_SCHEME: ${MINIO_SCHEME:-http}
       REDIS_HOST: redis
       SECRET_KEY: ${SECRET_KEY}
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME}
@@ -189,7 +189,6 @@ services:
       rabbitmq:
         condition: service_healthy
     ports:
-      # С хоста: Postman на localhost:8082. Без этого порта доступен только через nginx :80
       - "8082:8082"
     healthcheck:
       test: ["CMD", "nc", "-z", "127.0.0.1", "8082"]
@@ -211,6 +210,7 @@ services:
       MINIO_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       MINIO_ENDPOINT_OVERRIDE: "minio:9000"
+      MINIO_SCHEME: ${MINIO_SCHEME:-http}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       SECRET_KEY: ${SECRET_KEY}
@@ -229,6 +229,51 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  create-analytics-minio-buckets:
+    image: minio/mc:latest
+    container_name: create_analytics_minio_buckets
+    restart: no
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MC_ENDPOINT: ${ANALYTICS_MC_ENDPOINT:-http://minio:9000}
+      MC_ROOT_USER: ${MINIO_ROOT_USER}
+      MC_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        set -e
+        mc alias set regatta $$MC_ENDPOINT $$MC_ROOT_USER $$MC_ROOT_PASSWORD
+        mc mb --ignore-existing regatta/gpx-files
+        mc mb --ignore-existing regatta/pdf-reports
+        mc mb --ignore-existing regatta/csv-reports
+        echo analytics minio buckets ok
+
+  analytics:
+    image: stdneprov/analytics:latest
+    container_name: regatta_analytics
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      create-analytics-minio-buckets:
+        condition: service_completed_successfully
+    environment:
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      AWS_REGION: ${ANALYTICS_AWS_REGION:-eu-central-1}
+      AWS_ENDPOINT_URL: ${ANALYTICS_AWS_ENDPOINT_URL:-http://minio:9000}
+      RABBITMQ_USER: ${RABBITMQ_USERNAME}
+      RABBITMQ_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_HOST: rabbitmq
+      TASKS_QUEUE: analytics_tasks
+      NOTIFICATIONS_QUEUE: notifier_tasks
+      NOTIFICATIONS_EXCHANGE: ""
+    restart: unless-stopped
+
   observer:
     build:
       context: ../regatta-tracker-observer
@@ -245,6 +290,28 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+
+  integration-tests:
+    build:
+      context: .
+      dockerfile: tests/Dockerfile.integration
+    container_name: regatta_integration_tests
+    restart: no
+    network_mode: service:nginx
+    env_file:
+      - .env
+    environment:
+      PSQL_HOST: postgres
+      PSQL_PORT: '5432'
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      MINIO_ENDPOINT_OVERRIDE: minio:9000
+      MINIO_SCHEME: ${MINIO_SCHEME:-http}
+    volumes:
+      - ./.env:/workspace/tests/.env:ro
+    depends_on:
+      nginx:
+        condition: service_started
 
 volumes:
   minio_data: 

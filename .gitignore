@@ -3,4 +3,5 @@
 nginx/logs/*
 
 tests/build/
-tests/subprojects/rgt-devkit/
+tests/subprojects/*
+!tests/subprojects/rgt-devkit.wrap
