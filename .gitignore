@@ -5,3 +5,5 @@ nginx/logs/*
 tests/build/
 tests/subprojects/*
 !tests/subprojects/rgt-devkit.wrap
+
+.DS_Store

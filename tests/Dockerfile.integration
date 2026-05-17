@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.4
 FROM alpine:3.23.3
 
 RUN apk add --no-cache \
@@ -10,8 +11,6 @@ RUN apk add --no-cache \
     poco-dev \
     libsodium-dev \
     gtest-dev \
-    aws-sdk-cpp-dev \
-    aws-crt-cpp-dev \
     boost-dev \
     cmake \
     netcat-openbsd
@@ -47,9 +46,11 @@ WORKDIR /workspace/tests
 
 RUN chmod +x run-integration-tests.sh
 
+RUN rm -rf subprojects/rgt-devkit build
+COPY --from=devkit . ./subprojects/rgt-devkit
 RUN meson setup build --buildtype release --wipe
 
-RUN meson compile -C build -j "$(nproc)"
+RUN meson compile -C build -j 1
 
 ENV LD_LIBRARY_PATH=/workspace/tests/build/subprojects/rgt-devkit
 

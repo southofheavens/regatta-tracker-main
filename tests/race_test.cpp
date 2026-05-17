@@ -5,6 +5,7 @@
 #include <format>
 #include <fstream>
 #include <regex>
+#include <span>
 #include <string>
 #include <thread>
 #include <vector>
@@ -98,17 +99,30 @@ std::string doHttpJson
     return std::string(std::to_string(static_cast<int>(response.getStatus()))) + "\n" + responseBody;
 }
 
+void assertUserHasRole(uint64_t userId, const std::string & expectedRole)
+{
+    Poco::Data::Session session = RGT::Devkit::TestTools::ConnectionRegistry::instance().getPsqlPool().get();
+    std::string role;
+    session
+        << "SELECT role::text FROM users WHERE id = $1",
+        Poco::Data::Keywords::use(userId),
+        Poco::Data::Keywords::into(role),
+        Poco::Data::Keywords::now;
+    ASSERT_EQ(role, expectedRole)
+        << "user id " << userId << " must have role '" << expectedRole << "', got '" << role << "'";
+}
+
 void createRace
 (
     RGT::Devkit::TestTools::User & judge,
-    const std::array<RGT::Devkit::TestTools::User, 5> & participants,
+    std::span<RGT::Devkit::TestTools::User * const> participants,
     uint64_t & raceIdOut
 )
 {
     Poco::JSON::Object jsonBody;
     Poco::JSON::Array::Ptr participantsIds = new Poco::JSON::Array;
-    for (const auto & p : participants) {
-        participantsIds->add(p.getId());
+    for (RGT::Devkit::TestTools::User * const p : participants) {
+        participantsIds->add(p->getId());
     }
     jsonBody.set("participants", participantsIds);
 
@@ -144,6 +158,7 @@ void createRace
     Poco::JSON::Object::Ptr result = parser.parse(stringResponse).extract<Poco::JSON::Object::Ptr>();
     ASSERT_TRUE(result->has("id"));
     raceIdOut = result->get("id").convert<uint64_t>();
+    ASSERT_GT(raceIdOut, 0u) << "create_race must return a real race id, not 0. Body: " << stringResponse;
 }
 
 void postManagementOk(RGT::Devkit::TestTools::User & judge, const std::string & uri, uint64_t raceId)
@@ -227,37 +242,12 @@ bool waitRaceFinished(uint64_t raceId, std::chrono::milliseconds totalTimeout)
     return false;
 }
 
-} // namespace
-
-/// Интеграционный сценарий: судья создаёт гонку, стартует, пять участников отдают треки из GPX,
-/// судья завершает гонку; race-postprocessor выставляет статус finished в PostgreSQL.
-TEST(IntegrationRace, trainer_five_participants_gpx_finish)
+void runFiveParticipantsGpxFinishScenario
+(
+    RGT::Devkit::TestTools::User & trainer,
+    std::array<RGT::Devkit::TestTools::User *, 5> participants
+)
 {
-    RGT::Devkit::readDotEnv();
-
-    // Логин: только буквы латиницы и цифры, первый символ — буква (RegisterHandler::validateLogin).
-    const auto stampMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count();
-    const auto stamp = static_cast<std::make_unsigned_t<decltype(stampMs)>>(stampMs);
-    const std::string loginRoot = std::format("racex{}", stamp);
-
-    RGT::Devkit::TestTools::User trainer
-    (
-        "Trainer",
-        "Integration",
-        loginRoot + "judge",
-        RGT::Devkit::TestTools::Role::Judge
-    );
-
-    std::array<RGT::Devkit::TestTools::User, 5> participants =
-    {
-        RGT::Devkit::TestTools::User("P1", "Boat", loginRoot + "p1", RGT::Devkit::TestTools::Role::Participant),
-        RGT::Devkit::TestTools::User("P2", "Boat", loginRoot + "p2", RGT::Devkit::TestTools::Role::Participant),
-        RGT::Devkit::TestTools::User("P3", "Boat", loginRoot + "p3", RGT::Devkit::TestTools::Role::Participant),
-        RGT::Devkit::TestTools::User("P4", "Boat", loginRoot + "p4", RGT::Devkit::TestTools::Role::Participant),
-        RGT::Devkit::TestTools::User("P5", "Boat", loginRoot + "p5", RGT::Devkit::TestTools::Role::Participant),
-    };
-
     uint64_t raceId = 0;
     createRace(trainer, participants, raceId);
 
@@ -268,7 +258,7 @@ TEST(IntegrationRace, trainer_five_participants_gpx_finish)
         const std::string path = std::format("{}/regatta_boat_{}.gpx", GPX_FILES_DIR, i + 1);
         const std::vector<GpxPoint> track = parseGpxFile(path);
         for (const GpxPoint & pt : track) {
-            uploadCoordinate(participants[i], pt.timeIso, pt.longitude, pt.latitude);
+            uploadCoordinate(*participants[i], pt.timeIso, pt.longitude, pt.latitude);
         }
     }
 
@@ -287,10 +277,77 @@ TEST(IntegrationRace, trainer_five_participants_gpx_finish)
         Poco::Data::Keywords::now;
     EXPECT_EQ(finalStatus, "finished");
 
+    ASSERT_GT(raceIdForSql, 0u);
+    std::this_thread::sleep_for(std::chrono::minutes(1));
+
     verifySession
         << "DELETE FROM races WHERE id = $1",
         Poco::Data::Keywords::use(raceIdForSql),
         Poco::Data::Keywords::now;
+}
+
+} // namespace
+
+TEST(IntegrationRace, trainer_five_participants_gpx_finish)
+{
+    RGT::Devkit::readDotEnv();
+
+    // Логин: только буквы латиницы и цифры, первый символ — буква (RegisterHandler::validateLogin).
+    const auto stampMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    const auto stamp = static_cast<std::make_unsigned_t<decltype(stampMs)>>(stampMs);
+    const std::string loginRoot = std::format("racex{}", stamp);
+
+    RGT::Devkit::TestTools::User trainer
+    (
+        "Trainer",
+        "Integration",
+        loginRoot + "judge",
+        RGT::Devkit::TestTools::Role::Judge
+    );
+
+    RGT::Devkit::TestTools::User p1("P1", "Boat", loginRoot + "p1", RGT::Devkit::TestTools::Role::Participant);
+    RGT::Devkit::TestTools::User p2("P2", "Boat", loginRoot + "p2", RGT::Devkit::TestTools::Role::Participant);
+    RGT::Devkit::TestTools::User p3("P3", "Boat", loginRoot + "p3", RGT::Devkit::TestTools::Role::Participant);
+    RGT::Devkit::TestTools::User p4("P4", "Boat", loginRoot + "p4", RGT::Devkit::TestTools::Role::Participant);
+    RGT::Devkit::TestTools::User p5("P5", "Boat", loginRoot + "p5", RGT::Devkit::TestTools::Role::Participant);
+
+    std::array<RGT::Devkit::TestTools::User *, 5> participants = {&p1, &p2, &p3, &p4, &p5};
+    runFiveParticipantsGpxFinishScenario(trainer, participants);
+}
+
+TEST(IntegrationRace, five_participants_gpx_finish_with_existing_antonio123)
+{
+    RGT::Devkit::readDotEnv();
+
+    std::optional<std::string> existingLogin = RGT::Devkit::getEnv("INTEGRATION_EXISTING_LOGIN");
+    std::optional<std::string> existingPassword = RGT::Devkit::getEnv("INTEGRATION_EXISTING_PASSWORD");
+    ASSERT_TRUE(existingLogin.has_value() and not existingLogin->empty());
+    ASSERT_TRUE(existingPassword.has_value() and not existingPassword->empty());
+
+    const auto stampMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    const auto stamp = static_cast<std::make_unsigned_t<decltype(stampMs)>>(stampMs);
+    const std::string loginRoot = std::format("racex{}", stamp);
+
+    RGT::Devkit::TestTools::User trainer
+    (
+        "Trainer",
+        "Integration",
+        loginRoot + "judge",
+        RGT::Devkit::TestTools::Role::Judge
+    );
+
+    RGT::Devkit::TestTools::User antonio = RGT::Devkit::TestTools::User::fromExisting(*existingLogin, *existingPassword);
+    assertUserHasRole(antonio.getId(), "participant");
+
+    RGT::Devkit::TestTools::User p2("P2", "Boat", loginRoot + "p2", RGT::Devkit::TestTools::Role::Participant);
+    RGT::Devkit::TestTools::User p3("P3", "Boat", loginRoot + "p3", RGT::Devkit::TestTools::Role::Participant);
+    RGT::Devkit::TestTools::User p4("P4", "Boat", loginRoot + "p4", RGT::Devkit::TestTools::Role::Participant);
+    RGT::Devkit::TestTools::User p5("P5", "Boat", loginRoot + "p5", RGT::Devkit::TestTools::Role::Participant);
+
+    std::array<RGT::Devkit::TestTools::User *, 5> participants = {&antonio, &p2, &p3, &p4, &p5};
+    runFiveParticipantsGpxFinishScenario(trainer, participants);
 }
 
 } // namespace RGT::Main::Tests

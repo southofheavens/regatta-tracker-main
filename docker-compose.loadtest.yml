@@ -1,0 +1,7 @@
+services:
+  postgres:
+    command: postgres -c max_connections=250
+
+  auth:
+    volumes:
+      - ./config/rgt-auth.loadtest.config:/etc/rgt-auth.config:ro

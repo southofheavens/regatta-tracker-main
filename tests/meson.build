@@ -15,12 +15,14 @@ poco_json = cpp.find_library('PocoJSON', required: true)
 poco_net = cpp.find_library('PocoNet', required: true)
 poco_data = cpp.find_library('PocoData', required: true)
 poco_data_postgresql = cpp.find_library('PocoDataPostgreSQL', required: true)
+poco_jwt = cpp.find_library('PocoJWT', required: true)
+libsodium_dep = dependency('libsodium', required: true)
 
 gpx_dir = join_paths(meson.current_source_dir(), 'gpx-files')
 
 rgt_main_integration_tests = executable(
   'rgt-main-integration-tests',
-  files('race_test.cpp'),
+  files('race_test.cpp', 'load_test.cpp'),
   dependencies: [
     gtest_dep,
     gtest_main_dep,
@@ -29,6 +31,8 @@ rgt_main_integration_tests = executable(
     poco_net,
     poco_data,
     poco_data_postgresql,
+    poco_jwt,
+    libsodium_dep,
     devkit_dep,
   ],
   include_directories: include_directories('.'),
@@ -47,7 +51,7 @@ rgt_main_integration_tests = executable(
 test(
   'rgt-main-integration-tests',
   rgt_main_integration_tests,
-  timeout: 600,
+  timeout: 7200,
   is_parallel: false,
   workdir: meson.project_source_root(),
 )

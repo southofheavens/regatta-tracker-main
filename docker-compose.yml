@@ -126,7 +126,9 @@ services:
     build:
       context: ../regatta-tracker-auth
       dockerfile: Dockerfile
-    container_name: regatta_auth
+      additional_contexts:
+        devkit: ../regatta-tracker-devkit
+    # Без container_name — чтобы работало: docker compose up --scale auth=N
     environment:
       PSQL_HOST: postgres
       PSQL_USER: ${POSTGRES_USER}
@@ -152,6 +154,8 @@ services:
     build:
       context: ../regatta-tracker-receiver
       dockerfile: Dockerfile
+      additional_contexts:
+        devkit: ../regatta-tracker-devkit
     container_name: regatta_receiver
     environment:
       REDIS_HOST: redis
@@ -165,6 +169,8 @@ services:
     build:
       context: ../regatta-tracker-management
       dockerfile: Dockerfile
+      additional_contexts:
+        devkit: ../regatta-tracker-devkit
     container_name: regatta_management
     environment:
       PSQL_HOST: postgres
@@ -202,6 +208,8 @@ services:
     build:
       context: ../regatta-tracker-race-postprocessor
       dockerfile: Dockerfile
+      additional_contexts:
+        devkit: ../regatta-tracker-devkit
     container_name: regatta_race_postprocessor
     environment:
       PSQL_HOST: postgres
@@ -274,10 +282,57 @@ services:
       NOTIFICATIONS_EXCHANGE: ""
     restart: unless-stopped
 
+  notifier:
+    build:
+      context: ../regatta-tracker-notifier
+      dockerfile: Dockerfile
+      additional_contexts:
+        devkit: ../regatta-tracker-devkit
+    container_name: regatta_notifier
+    env_file:
+      - .env
+    environment:
+      PSQL_HOST: postgres
+      PSQL_PORT: "5432"
+      PSQL_USER: ${POSTGRES_USER}
+      PSQL_PASSWORD: ${POSTGRES_PASSWORD}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  telegram-bot:
+    build:
+      context: ../regatta-tracker-bot
+      dockerfile: Dockerfile
+    container_name: regatta_telegram_bot
+    env_file:
+      - .env
+    environment:
+      PSQL_HOST: postgres
+      PSQL_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   observer:
     build:
       context: ../regatta-tracker-observer
       dockerfile: Dockerfile
+      additional_contexts:
+        devkit: ../regatta-tracker-devkit
     container_name: regatta_observer
     environment:
       REDIS_HOST: redis
@@ -295,11 +350,14 @@ services:
     build:
       context: .
       dockerfile: tests/Dockerfile.integration
+      additional_contexts:
+        devkit: ../regatta-tracker-devkit
     container_name: regatta_integration_tests
     restart: no
     network_mode: service:nginx
     env_file:
       - .env
+      - tests/.env
     environment:
       PSQL_HOST: postgres
       PSQL_PORT: '5432'
@@ -307,9 +365,18 @@ services:
       RABBITMQ_HOST: rabbitmq
       MINIO_ENDPOINT_OVERRIDE: minio:9000
       MINIO_SCHEME: ${MINIO_SCHEME:-http}
+      INTEGRATION_EXISTING_LOGIN: ${INTEGRATION_EXISTING_LOGIN}
+      INTEGRATION_EXISTING_PASSWORD: ${INTEGRATION_EXISTING_PASSWORD}
     volumes:
       - ./.env:/workspace/tests/.env:ro
+      - ./tests/.env:/workspace/tests/tests.env:ro
     depends_on:
+      auth:
+        condition: service_started
+      receiver:
+        condition: service_started
+      management:
+        condition: service_healthy
       nginx:
         condition: service_started
 
